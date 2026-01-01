@@ -1,0 +1,23 @@
+#!/bin/bash
+
+# Variables for the version components
+MAJOR=0
+MINOR=$(git rev-list --count HEAD)
+HASH=$(git rev-parse --short HEAD)
+
+# The full version string
+FULL_VERSION="${MAJOR}.${MINOR}-${HASH}"
+
+# Check if the git tree is dirty
+if [ -n "$(git status --porcelain)" ]; then
+    FULL_VERSION="${FULL_VERSION}-dirty"
+fi
+
+# Build the app with the injected version
+go build -ldflags="-X 'main.Version=${FULL_VERSION}'" -o pingo .
+
+if [ $? -eq 0 ]; then
+    echo "Build successful! Executable: ./pingo"
+else
+    echo "Build failed!"
+fi
