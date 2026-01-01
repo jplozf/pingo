@@ -77,6 +77,9 @@ func main() {
 		customField,
 	))
 
+	// Run update check in the background
+	go checkForUpdates(w)
+
 	go func() {
 		ticker := time.NewTicker(time.Second)
 		for range ticker.C {
