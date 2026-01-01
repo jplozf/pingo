@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Variables for the version components
-MAJOR=0
+MAJOR=$(grep "MajorVersion =" version.go | cut -d '"' -f 2)
 MINOR=$(git rev-list --count HEAD)
 HASH=$(git rev-parse --short HEAD)
 
@@ -17,7 +17,7 @@ fi
 go build -ldflags="-X 'main.Version=${FULL_VERSION}'" -o pingo .
 
 if [ $? -eq 0 ]; then
-    echo "Build successful! Executable: ./pingo"
+    echo "Built version : .pingo v$FULL_VERSION"
 else
-    echo "Build failed!"
+    echo "Build failed !"
 fi

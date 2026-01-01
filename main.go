@@ -23,9 +23,10 @@ import (
 // CONSTANTS
 // ****************************************************************************
 const (
+	AppID            = "fr.ozf.pingo"
 	AppTitle         = "Pingo"
 	AppFolderName    = ".pingo"
-	SettingsFileName = "config.ini"
+	SettingsFileName = "config.json"
 )
 
 // ****************************************************************************
@@ -43,9 +44,9 @@ type AppConfig struct {
 // ****************************************************************************
 func main() {
 	// 1. Initialize with a unique ID for persistent storage
-	a := app.NewWithID("fr.ozf.pingo")
+	a := app.NewWithID(AppID)
 	// Use the Version variable in the title bar
-	title := fmt.Sprintf("%s - v%s", AppTitle, Version)
+	title := fmt.Sprintf("%s - v%s", AppTitle, GetDisplayVersion())
 	w := a.NewWindow(title)
 	w.SetIcon(theme.ComputerIcon())
 

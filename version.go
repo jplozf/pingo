@@ -1,10 +1,13 @@
 package main
 
-import "fmt"
+const MajorVersion = "0"
 
 // This variable will be overwritten at compile time
-var Version = "0.0-dev"
+var Version = "dev"
 
-func printVersion() {
-	fmt.Printf("App Version: %s\n", Version)
+func GetDisplayVersion() string {
+	if Version == "dev" {
+		return MajorVersion + ".x-dev"
+	}
+	return Version
 }
