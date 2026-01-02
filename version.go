@@ -37,7 +37,7 @@ func GetDisplayVersion() string {
 func fetchRemoteHash() (string, error) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	// We use the GitHub API to get the latest commit from the main branch
-	resp, err := client.Get("https://api.github.com/repos/jplozf/pingo/commits/main")
+	resp, err := client.Get(GitRepository)
 	if err != nil {
 		return "", err
 	}

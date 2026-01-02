@@ -17,7 +17,7 @@ fi
 go build -ldflags="-X 'main.Version=${FULL_VERSION}'" -o pingo .
 
 if [ $? -eq 0 ]; then
-    echo "Built version : .pingo v$FULL_VERSION"
+    echo "Built version : pingo v$FULL_VERSION"
 else
     echo "Build failed !"
 fi

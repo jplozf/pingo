@@ -6,27 +6,16 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"image/color"
 	"os"
 	"path/filepath"
 	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
-)
-
-// ****************************************************************************
-// CONSTANTS
-// ****************************************************************************
-const (
-	AppID            = "fr.ozf.pingo"
-	AppTitle         = "Pingo"
-	AppFolderName    = ".pingo"
-	SettingsFileName = "config.json"
 )
 
 // ****************************************************************************
@@ -40,55 +29,71 @@ type AppConfig struct {
 }
 
 // ****************************************************************************
+// GLOBALS
+// ****************************************************************************
+var a fyne.App
+var statusLabel = widget.NewLabel("Ready")
+var lastMessageTime time.Time
+var statusChan = make(chan string, 10) // Buffer of 10 messages
+
+// ****************************************************************************
 // main()
 // ****************************************************************************
 func main() {
-	// 1. Initialize with a unique ID for persistent storage
-	a := app.NewWithID(AppID)
+	// Initialize with a unique ID for persistent storage
+	a = app.NewWithID(AppID)
 	// Use the Version variable in the title bar
 	title := fmt.Sprintf("%s - v%s", AppTitle, GetDisplayVersion())
 	w := a.NewWindow(title)
 	w.SetIcon(theme.ComputerIcon())
 
-	// 2. Retrieve saved geometry (fall back to 400x300 if not found)
+	// Retrieve saved geometry (fall back to 400x300 if not found)
 	width := a.Preferences().FloatWithFallback("win_width", 400)
 	height := a.Preferences().FloatWithFallback("win_height", 300)
 	w.Resize(fyne.NewSize(float32(width), float32(height)))
 
-	// 3. Save geometry when the window is closed
+	// Save geometry when the window is closed
 	w.SetOnClosed(func() {
 		currSize := w.Content().Size()
 		a.Preferences().SetFloat("win_width", float64(currSize.Width))
 		a.Preferences().SetFloat("win_height", float64(currSize.Height))
 	})
 
-	output := canvas.NewText(time.Now().Format(time.TimeOnly), color.NRGBA{R: 0xff, G: 0xff, A: 0xff})
-	output.TextStyle.Monospace = true
-	output.TextSize = 32
-	w.SetContent(output)
+	// Bind F3 to Exit
+	w.Canvas().SetOnTypedKey(func(k *fyne.KeyEvent) {
+		if k.Name == fyne.KeyF3 {
+			// fmt.Println("F3 pressed: Shutting down...")
+			w.Close() // window.Close() triggers OnClosed; myApp.Quit() stops the whole app
+		}
+	})
 
 	// Usage
 	customField := NewPingWidget("Username:", "Enter name...", func(val string) {
-		fmt.Println("Submitted value:", val)
+		if val == "" {
+			showStatus("Error: Username cannot be empty!")
+		} else {
+			showStatus("Username saved successfully!")
+		}
 	})
 
-	w.SetContent(container.NewVBox(
-		widget.NewLabel("Fyne Custom Widget"),
-		customField,
-	))
+	// Setup Menu
+	createMainMenu(w)
+
+	// Assemble Layout
+	statusBar := createStatusBar()
+	mainContent := container.NewVBox(customField)
+
+	// Border Layout: Top=nil, Bottom=statusBar, Left=nil, Right=nil, Center=mainContent
+	layout := container.NewBorder(nil, statusBar, nil, nil, mainContent)
+
+	w.SetContent(layout)
+
+	// Start the manager
+	startStatusManager()
 
 	// Run update check in the background
 	go checkForUpdates(w)
 
-	go func() {
-		ticker := time.NewTicker(time.Second)
-		for range ticker.C {
-			fyne.Do(func() {
-				output.Text = time.Now().Format(time.TimeOnly)
-				output.Refresh()
-			})
-		}
-	}()
 	w.ShowAndRun()
 }
 
@@ -96,16 +101,16 @@ func main() {
 // getAppFolderPath()
 // ****************************************************************************
 func getAppFolderPath(folderName string) (string, error) {
-	// 1. Get the user's home directory (e.g., /home/user or C:\Users\user)
+	// Get the user's home directory (e.g., /home/user or C:\Users\user)
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
 
-	// 2. Define the full path
+	// Define the full path
 	appPath := filepath.Join(home, folderName)
 
-	// 3. Create the folder with 0755 permissions (rwxr-xr-x)
+	// Create the folder with 0755 permissions (rwxr-xr-x)
 	// If it exists, MkdirAll returns nil (no error)
 	err = os.MkdirAll(appPath, 0755)
 	if err != nil {
@@ -162,4 +167,73 @@ func loadConfig() (AppConfig, error) {
 
 	err = json.Unmarshal(data, &config)
 	return config, err
+}
+
+// ****************************************************************************
+// createMainMenu()
+// ****************************************************************************
+func createMainMenu(w fyne.Window) {
+	// File Menu
+	newItem := fyne.NewMenuItem("New", func() { fmt.Println("Menu: New") })
+	// We can bind our F3 logic here too
+	// quitItem := fyne.NewMenuItem("Quit (F3)", func() { w.Close() })
+	// fileMenu := fyne.NewMenu("File", newItem, fyne.NewMenuItemSeparator(), quitItem)
+	fileMenu := fyne.NewMenu("File", newItem)
+
+	// Help Menu
+	aboutItem := fyne.NewMenuItem("About", func() {
+		dialog.ShowInformation("Pingo", "Version: "+Version+"\nAuthor: JPL", w)
+	})
+	helpMenu := fyne.NewMenu("Help", aboutItem)
+
+	// Set the Main Menu
+	mainMenu := fyne.NewMainMenu(fileMenu, helpMenu)
+	w.SetMainMenu(mainMenu)
+}
+
+// ****************************************************************************
+// createStatusBar()
+// ****************************************************************************
+func createStatusBar() fyne.CanvasObject {
+	statusLabel.Alignment = fyne.TextAlignLeading
+	// We wrap it in a container to give it a slight background or border look if desired
+	return container.NewHBox(statusLabel)
+}
+
+// ****************************************************************************
+// startStatusManager()
+// ****************************************************************************
+func startStatusManager() {
+	go func() {
+		for msg := range statusChan {
+			// Set the new message
+			fyne.Do(func() {
+				statusLabel.SetText(msg)
+				statusLabel.Refresh()
+			})
+
+			// Wait for the timeout
+			time.Sleep(time.Duration(StatusTimeout) * time.Second)
+
+			// Only reset to "Ready" if there isn't a newer message waiting
+			if len(statusChan) == 0 {
+				fyne.Do(func() {
+					statusLabel.SetText(StatusDefaultMessage)
+					statusLabel.Refresh()
+				})
+			}
+		}
+	}()
+}
+
+// ****************************************************************************
+// showStatus()
+// ****************************************************************************
+func showStatus(message string) {
+	// Send message to the channel without blocking
+	select {
+	case statusChan <- message:
+	default:
+		// If channel is full, we skip or handle it
+	}
 }
