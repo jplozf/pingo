@@ -71,5 +71,6 @@ func checkForUpdates(w fyne.Window) {
 		dialog.ShowInformation("Update Available",
 			"A new version is available on GitHub!\nRemote Hash: "+remoteHash,
 			w)
+		showStatus("A new version is available on GitHub")
 	}
 }

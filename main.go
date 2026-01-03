@@ -4,10 +4,7 @@ package main
 // IMPORTS
 // ****************************************************************************
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -19,20 +16,12 @@ import (
 )
 
 // ****************************************************************************
-// TYPES
-// ****************************************************************************
-type AppConfig struct {
-	WindowWidth  float32 `json:"window_width"`
-	WindowHeight float32 `json:"window_height"`
-	Username     string  `json:"username"`
-	Email        string  `json:"email"`
-}
-
-// ****************************************************************************
 // GLOBALS
 // ****************************************************************************
 var a fyne.App
-var statusLabel = widget.NewLabel("Ready")
+var w fyne.Window
+var split *container.Split
+var statusLabel = widget.NewLabel(StatusDefaultMessage)
 var lastMessageTime time.Time
 var statusChan = make(chan string, 10) // Buffer of 10 messages
 
@@ -40,23 +29,35 @@ var statusChan = make(chan string, 10) // Buffer of 10 messages
 // main()
 // ****************************************************************************
 func main() {
-	// Initialize with a unique ID for persistent storage
 	a = app.NewWithID(AppID)
-	// Use the Version variable in the title bar
+	a.Settings().SetTheme(&MyCustomTheme{}) // Apply globally
 	title := fmt.Sprintf("%s - v%s", AppTitle, GetDisplayVersion())
-	w := a.NewWindow(title)
+	w = a.NewWindow(title)
 	w.SetIcon(theme.ComputerIcon())
 
-	// Retrieve saved geometry (fall back to 400x300 if not found)
-	width := a.Preferences().FloatWithFallback("win_width", 400)
-	height := a.Preferences().FloatWithFallback("win_height", 300)
+	var width, height, splitOffset float64
+	newConfig, err := loadConfig()
+	if err != nil {
+		width = 400
+		height = 300
+		splitOffset = 0.33
+		showStatus("No config found")
+	} else {
+		width = float64(newConfig.WindowWidth)
+		height = float64(newConfig.WindowHeight)
+		splitOffset = float64(newConfig.SplitOffset)
+	}
 	w.Resize(fyne.NewSize(float32(width), float32(height)))
 
 	// Save geometry when the window is closed
 	w.SetOnClosed(func() {
 		currSize := w.Content().Size()
-		a.Preferences().SetFloat("win_width", float64(currSize.Width))
-		a.Preferences().SetFloat("win_height", float64(currSize.Height))
+		newConfig := AppConfig{
+			WindowWidth:  currSize.Width,
+			WindowHeight: currSize.Height,
+			SplitOffset:  split.Offset,
+		}
+		saveConfig(newConfig)
 	})
 
 	// Bind F3 to Exit
@@ -76,97 +77,33 @@ func main() {
 		}
 	})
 
-	// Setup Menu
-	createMainMenu(w)
+	// Left Panel (e.g., a list or navigation)
+	leftContent := container.NewVBox(
+		widget.NewLabel("Navigation"),
+		widget.NewButton("Setting A", func() {}),
+		widget.NewButton("Setting B", func() {}),
+	)
+
+	// Right Panel (e.g., your main form)
+	rightContent := container.NewVBox(customField)
+
+	// Create the Split Container
+	split = container.NewHSplit(leftContent, rightContent)
+	split.Offset = splitOffset
 
 	// Assemble Layout
 	statusBar := createStatusBar()
-	mainContent := container.NewVBox(customField)
+	mainLayout := container.NewBorder(nil, statusBar, nil, nil, split)
+	w.SetContent(mainLayout)
 
-	// Border Layout: Top=nil, Bottom=statusBar, Left=nil, Right=nil, Center=mainContent
-	layout := container.NewBorder(nil, statusBar, nil, nil, mainContent)
-
-	w.SetContent(layout)
-
-	// Start the manager
+	// Setup Menu
+	createMainMenu(w)
+	// Start the status manager
 	startStatusManager()
-
 	// Run update check in the background
 	go checkForUpdates(w)
-
+	// And the show must go on
 	w.ShowAndRun()
-}
-
-// ****************************************************************************
-// getAppFolderPath()
-// ****************************************************************************
-func getAppFolderPath(folderName string) (string, error) {
-	// Get the user's home directory (e.g., /home/user or C:\Users\user)
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-
-	// Define the full path
-	appPath := filepath.Join(home, folderName)
-
-	// Create the folder with 0755 permissions (rwxr-xr-x)
-	// If it exists, MkdirAll returns nil (no error)
-	err = os.MkdirAll(appPath, 0755)
-	if err != nil {
-		return "", err
-	}
-
-	return appPath, nil
-}
-
-// ****************************************************************************
-// saveData()
-// ****************************************************************************
-func saveData(content string) error {
-	folder, err := getAppFolderPath(AppFolderName) // Starting with a dot makes it hidden on Linux/macOS
-	if err != nil {
-		return err
-	}
-
-	filePath := filepath.Join(folder, SettingsFileName)
-
-	// WriteFile creates or overwrites the file
-	return os.WriteFile(filePath, []byte(content), 0644)
-}
-
-// ****************************************************************************
-// saveConfig()
-// ****************************************************************************
-func saveConfig(config AppConfig) error {
-	path, _ := getAppFolderPath(AppFolderName)
-
-	// Create folder if missing
-	os.MkdirAll(filepath.Dir(path), 0755)
-
-	// Convert struct to JSON bytes
-	data, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(path, data, 0644)
-}
-
-// ****************************************************************************
-// loadConfig()
-// ****************************************************************************
-func loadConfig() (AppConfig, error) {
-	path, _ := getAppFolderPath(AppFolderName)
-	var config AppConfig
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return config, err // Return empty config if file doesn't exist
-	}
-
-	err = json.Unmarshal(data, &config)
-	return config, err
 }
 
 // ****************************************************************************
