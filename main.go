@@ -5,10 +5,13 @@ package main
 // ****************************************************************************
 import (
 	"fmt"
+	"image/color"
+	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -24,6 +27,8 @@ var statusLabel = widget.NewLabel(StatusDefaultMessage)
 var lastMessageTime time.Time
 var statusChan = make(chan string, 10) // Buffer of 10 messages
 var settings AppSettings
+var statusLight *canvas.Circle
+var statusMutex sync.Mutex
 
 // ****************************************************************************
 // main()
@@ -72,7 +77,14 @@ func main() {
 	})
 
 	// Usage
-	customField := NewPingWidget("Username:", "Enter name...", func(val string) {
+	wid1 := NewPingWidget("Username:", "Enter name...", func(val string) {
+		if val == "" {
+			showStatus("Error: Username cannot be empty!")
+		} else {
+			showStatus("Username saved successfully!")
+		}
+	})
+	wid2 := NewPingWidget("Username:", "Enter name...", func(val string) {
 		if val == "" {
 			showStatus("Error: Username cannot be empty!")
 		} else {
@@ -88,7 +100,7 @@ func main() {
 	)
 
 	// Right Panel (e.g., your main form)
-	rightContent := container.NewVBox(customField)
+	rightContent := container.NewVBox(wid1, wid2)
 
 	// Create the Split Container
 	split = container.NewHSplit(leftContent, rightContent)
@@ -136,9 +148,25 @@ func createMainMenu(w fyne.Window) {
 // createStatusBar()
 // ****************************************************************************
 func createStatusBar() fyne.CanvasObject {
-	statusLabel.Alignment = fyne.TextAlignLeading
-	// We wrap it in a container to give it a slight background or border look if desired
-	return container.NewHBox(statusLabel)
+	statusLight = canvas.NewCircle(color.NRGBA{R: 76, G: 175, B: 80, A: 255})
+	statusLight.StrokeColor = color.NRGBA{R: 0, G: 0, B: 0, A: 180} // Dark charcoal/black outline
+	statusLight.StrokeWidth = 1
+	rect := canvas.NewRectangle(color.Transparent)
+	rect.SetMinSize(fyne.NewSize(16, 16)) // This forces the "slot" to be 16x16
+	lightContainer := container.NewStack(rect, statusLight)
+	centeredLight := container.NewCenter(lightContainer)
+	barContent := container.NewHBox(
+		centeredLight,
+		statusLabel,
+	)
+
+	line := canvas.NewRectangle(color.NRGBA{R: 0, G: 0, B: 0, A: 30}) // Very light grey
+	line.SetMinSize(fyne.NewSize(0, 1))
+
+	return container.NewVBox(
+		line,
+		barContent,
+	)
 }
 
 // ****************************************************************************
@@ -171,10 +199,39 @@ func startStatusManager() {
 // showStatus()
 // ****************************************************************************
 func showStatus(message string) {
-	// Send message to the channel without blocking
-	select {
-	case statusChan <- message:
-	default:
-		// If channel is full, we skip or handle it
-	}
+	statusMutex.Lock()
+	now := time.Now()
+	lastMessageTime = now
+	statusMutex.Unlock()
+
+	fyne.Do(func() {
+		statusLabel.SetText(message)
+
+		// Change light to Yellow if not Ready
+		if message != StatusDefaultMessage {
+			statusLight.FillColor = color.NRGBA{R: 255, G: 235, B: 59, A: 255} // Yellow
+		} else {
+			statusLight.FillColor = color.NRGBA{R: 76, G: 175, B: 80, A: 255} // Green
+		}
+
+		statusLight.Refresh()
+		statusLabel.Refresh()
+	})
+
+	// Reset timer logic...
+	go func() {
+		time.Sleep(StatusTimeout * time.Second)
+		statusMutex.Lock()
+		isLast := lastMessageTime.Equal(now)
+		statusMutex.Unlock()
+
+		if isLast {
+			fyne.Do(func() {
+				statusLabel.SetText(StatusDefaultMessage)
+				statusLight.FillColor = color.NRGBA{R: 76, G: 175, B: 80, A: 255} // Back to Green
+				statusLight.Refresh()
+				statusLabel.Refresh()
+			})
+		}
+	}()
 }
