@@ -10,7 +10,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
@@ -24,46 +23,50 @@ var split *container.Split
 var statusLabel = widget.NewLabel(StatusDefaultMessage)
 var lastMessageTime time.Time
 var statusChan = make(chan string, 10) // Buffer of 10 messages
+var settings AppSettings
 
 // ****************************************************************************
 // main()
 // ****************************************************************************
 func main() {
 	a = app.NewWithID(AppID)
-	a.Settings().SetTheme(&MyCustomTheme{}) // Apply globally
 	title := fmt.Sprintf("%s - v%s", AppTitle, GetDisplayVersion())
 	w = a.NewWindow(title)
 	w.SetIcon(theme.ComputerIcon())
 
 	var width, height, splitOffset float64
-	newConfig, err := loadConfig()
+	var err error
+	settings, err = loadSettings()
 	if err != nil {
 		width = 400
 		height = 300
 		splitOffset = 0.33
-		showStatus("No config found")
+		settings.ThemePreference = "Light"
+		applyTheme(a, settings.ThemePreference)
+		showStatus("No settings found")
 	} else {
-		width = float64(newConfig.WindowWidth)
-		height = float64(newConfig.WindowHeight)
-		splitOffset = float64(newConfig.SplitOffset)
+		width = float64(settings.WindowWidth)
+		height = float64(settings.WindowHeight)
+		splitOffset = float64(settings.SplitOffset)
+		applyTheme(a, settings.ThemePreference)
 	}
 	w.Resize(fyne.NewSize(float32(width), float32(height)))
 
 	// Save geometry when the window is closed
 	w.SetOnClosed(func() {
 		currSize := w.Content().Size()
-		newConfig := AppConfig{
-			WindowWidth:  currSize.Width,
-			WindowHeight: currSize.Height,
-			SplitOffset:  split.Offset,
+		settings = AppSettings{
+			WindowWidth:     currSize.Width,
+			WindowHeight:    currSize.Height,
+			SplitOffset:     split.Offset,
+			ThemePreference: settings.ThemePreference,
 		}
-		saveConfig(newConfig)
+		saveSettings(settings)
 	})
 
 	// Bind F3 to Exit
 	w.Canvas().SetOnTypedKey(func(k *fyne.KeyEvent) {
 		if k.Name == fyne.KeyF3 {
-			// fmt.Println("F3 pressed: Shutting down...")
 			w.Close() // window.Close() triggers OnClosed; myApp.Quit() stops the whole app
 		}
 	})
@@ -112,14 +115,15 @@ func main() {
 func createMainMenu(w fyne.Window) {
 	// File Menu
 	newItem := fyne.NewMenuItem("New", func() { fmt.Println("Menu: New") })
-	// We can bind our F3 logic here too
-	// quitItem := fyne.NewMenuItem("Quit (F3)", func() { w.Close() })
-	// fileMenu := fyne.NewMenu("File", newItem, fyne.NewMenuItemSeparator(), quitItem)
-	fileMenu := fyne.NewMenu("File", newItem)
+	settingsItem := fyne.NewMenuItem("Settings", func() {
+		showSettingsDialog(w, a, &settings)
+	})
+
+	fileMenu := fyne.NewMenu("File", newItem, settingsItem)
 
 	// Help Menu
 	aboutItem := fyne.NewMenuItem("About", func() {
-		dialog.ShowInformation("Pingo", "Version: "+Version+"\nAuthor: JPL", w)
+		showAboutDialog(w)
 	})
 	helpMenu := fyne.NewMenu("Help", aboutItem)
 
