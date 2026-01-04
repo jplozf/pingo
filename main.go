@@ -6,6 +6,9 @@ package main
 import (
 	"fmt"
 	"image/color"
+	"os/exec"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,6 +16,7 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
@@ -47,13 +51,13 @@ func main() {
 		height = 300
 		splitOffset = 0.33
 		settings.ThemePreference = "Light"
-		applyTheme(a, settings.ThemePreference)
+		applyTheme(a, w, settings.ThemePreference)
 		showStatus("No settings found")
 	} else {
 		width = float64(settings.WindowWidth)
 		height = float64(settings.WindowHeight)
 		splitOffset = float64(settings.SplitOffset)
-		applyTheme(a, settings.ThemePreference)
+		applyTheme(a, w, settings.ThemePreference)
 	}
 	w.Resize(fyne.NewSize(float32(width), float32(height)))
 
@@ -77,20 +81,8 @@ func main() {
 	})
 
 	// Usage
-	wid1 := NewPingWidget("Username:", "Enter name...", func(val string) {
-		if val == "" {
-			showStatus("Error: Username cannot be empty!")
-		} else {
-			showStatus("Username saved successfully!")
-		}
-	})
-	wid2 := NewPingWidget("Username:", "Enter name...", func(val string) {
-		if val == "" {
-			showStatus("Error: Username cannot be empty!")
-		} else {
-			showStatus("Username saved successfully!")
-		}
-	})
+	wid1 := NewPingWidget("192.168.1.254")
+	wid2 := NewPingWidget("8.8.8.8")
 
 	// Left Panel (e.g., a list or navigation)
 	leftContent := container.NewVBox(
@@ -100,7 +92,7 @@ func main() {
 	)
 
 	// Right Panel (e.g., your main form)
-	rightContent := container.NewVBox(wid1, wid2)
+	rightContent := container.NewVBox(NewPingHeaderWidget(), wid1, wid2, layout.NewSpacer())
 
 	// Create the Split Container
 	split = container.NewHSplit(leftContent, rightContent)
@@ -148,19 +140,25 @@ func createMainMenu(w fyne.Window) {
 // createStatusBar()
 // ****************************************************************************
 func createStatusBar() fyne.CanvasObject {
-	statusLight = canvas.NewCircle(color.NRGBA{R: 76, G: 175, B: 80, A: 255})
-	statusLight.StrokeColor = color.NRGBA{R: 0, G: 0, B: 0, A: 180} // Dark charcoal/black outline
+	statusLight = canvas.NewCircle(ColorGreen)
+	statusLight.StrokeColor = ColorBlack
 	statusLight.StrokeWidth = 1
 	rect := canvas.NewRectangle(color.Transparent)
 	rect.SetMinSize(fyne.NewSize(16, 16)) // This forces the "slot" to be 16x16
 	lightContainer := container.NewStack(rect, statusLight)
 	centeredLight := container.NewCenter(lightContainer)
+
+	versionLabel := widget.NewLabel(Version)
+	versionLabel.TextStyle = fyne.TextStyle{Italic: true} // Make it look distinct
+
 	barContent := container.NewHBox(
 		centeredLight,
 		statusLabel,
+		layout.NewSpacer(), // PUSHES everything apart
+		versionLabel,       // Stays on the RIGHT
 	)
 
-	line := canvas.NewRectangle(color.NRGBA{R: 0, G: 0, B: 0, A: 30}) // Very light grey
+	line := canvas.NewRectangle(ColorLightGrey)
 	line.SetMinSize(fyne.NewSize(0, 1))
 
 	return container.NewVBox(
@@ -209,9 +207,9 @@ func showStatus(message string) {
 
 		// Change light to Yellow if not Ready
 		if message != StatusDefaultMessage {
-			statusLight.FillColor = color.NRGBA{R: 255, G: 235, B: 59, A: 255} // Yellow
+			statusLight.FillColor = ColorYellow
 		} else {
-			statusLight.FillColor = color.NRGBA{R: 76, G: 175, B: 80, A: 255} // Green
+			statusLight.FillColor = ColorGreen
 		}
 
 		statusLight.Refresh()
@@ -228,10 +226,43 @@ func showStatus(message string) {
 		if isLast {
 			fyne.Do(func() {
 				statusLabel.SetText(StatusDefaultMessage)
-				statusLight.FillColor = color.NRGBA{R: 76, G: 175, B: 80, A: 255} // Back to Green
+				statusLight.FillColor = ColorGreen
 				statusLight.Refresh()
 				statusLabel.Refresh()
 			})
 		}
 	}()
+}
+
+// ****************************************************************************
+// GetPingTime()
+// ****************************************************************************
+func GetPingTime(target string) (string, error) {
+	delimiter := settings.PingDelimiter
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("ping", "-n", "1", target)
+	} else {
+		cmd = exec.Command("ping", "-c", "1", target)
+	}
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", err
+	}
+
+	// Look for the "time=" string in the output
+	output := string(out)
+	if strings.Contains(output, delimiter) {
+		// Simple logic to extract the part after "time="
+		parts := strings.Split(output, delimiter)
+		if len(parts) > 1 {
+			// Get everything after the delimiter, then grab the first word (the number)
+			afterDelimiter := strings.TrimSpace(parts[1])
+			timeValue := strings.Split(afterDelimiter, " ")
+			return timeValue[0], nil // e.g. "14.2"
+		}
+	}
+
+	return "unknown", nil
 }
